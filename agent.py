@@ -6,6 +6,7 @@ from datetime import datetime
 MOLTBOOK_API_KEY = os.environ.get("MOLTBOOK_API_KEY")
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 MOLTBOOK_BASE = "https://www.moltbook.com/api/v1"
+TIMEOUT = 30
 
 PERSONALITY = """You are ChrolloSD2 — an AI agent on Moltbook, a social network for AI agents.
 
@@ -40,52 +41,51 @@ def moltbook_request(method, endpoint, data=None):
     headers = {"Authorization": f"Bearer {MOLTBOOK_API_KEY}"}
     url = f"{MOLTBOOK_BASE}{endpoint}"
     
-    if method == "GET":
-        response = requests.get(url, headers=headers, params=data)
-    elif method == "POST":
-        headers["Content-Type"] = "application/json"
-        response = requests.post(url, headers=headers, json=data)
-    
-    return response.json()
+    try:
+        if method == "GET":
+            response = requests.get(url, headers=headers, params=data, timeout=TIMEOUT)
+        elif method == "POST":
+            headers["Content-Type"] = "application/json"
+            response = requests.post(url, headers=headers, json=data, timeout=TIMEOUT)
+        return response.json()
+    except Exception as e:
+        print(f"Request error: {e}")
+        return {"success": False, "error": str(e)}
 
 
 def get_feed():
     return moltbook_request("GET", "/posts", {"sort": "hot", "limit": 10})
 
 
-def get_my_posts():
-    me = moltbook_request("GET", "/agents/me")
-    if me.get("success"):
-        return moltbook_request("GET", "/posts", {"author": me["agent"]["name"], "limit": 5})
-    return {"posts": []}
-
-
 def ask_llm(prompt):
-    response = requests.post(
-        "https://api.groq.com/openai/v1/chat/completions",
-        headers={
-            "Authorization": f"Bearer {GROQ_API_KEY}",
-            "Content-Type": "application/json"
-        },
-        json={
-            "model": "llama-3.3-70b-versatile",
-            "messages": [
-                {"role": "system", "content": PERSONALITY},
-                {"role": "user", "content": prompt}
-            ],
-            "temperature": 0.8,
-            "max_tokens": 500
-        }
-    )
-    
-    result = response.json()
-    content = result["choices"][0]["message"]["content"]
-    
     try:
+        response = requests.post(
+            "https://api.groq.com/openai/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {GROQ_API_KEY}",
+                "Content-Type": "application/json"
+            },
+            json={
+                "model": "llama-3.3-70b-versatile",
+                "messages": [
+                    {"role": "system", "content": PERSONALITY},
+                    {"role": "user", "content": prompt}
+                ],
+                "temperature": 0.8,
+                "max_tokens": 500
+            },
+            timeout=TIMEOUT
+        )
+        
+        result = response.json()
+        print(f"LLM response: {result}")
+        content = result["choices"][0]["message"]["content"]
+        
         start = content.find("{")
         end = content.rfind("}") + 1
         return json.loads(content[start:end])
-    except:
+    except Exception as e:
+        print(f"LLM error: {e}")
         return {"action": "none"}
 
 
@@ -160,26 +160,28 @@ Respond with JSON only."""
 
 
 def main():
-    print(f"[{datetime.utcnow().isoformat()}] ChrolloSD2 waking up...")
+    print(f"[{datetime.utcnow().isoformat()}] ChrolloSD2 waking up...", flush=True)
     
     if not MOLTBOOK_API_KEY or not GROQ_API_KEY:
         print("Error: Missing API keys")
         return
     
+    print("Fetching feed...", flush=True)
     feed = get_feed()
     if not feed.get("success"):
         print(f"Error fetching feed: {feed}")
         return
     
-    print(f"Fetched {len(feed.get('posts', []))} posts")
+    print(f"Fetched {len(feed.get('posts', []))} posts", flush=True)
     
     prompt = build_prompt(feed)
+    print("Asking LLM...", flush=True)
     decision = ask_llm(prompt)
-    print(f"Decision: {decision}")
+    print(f"Decision: {decision}", flush=True)
     
     execute_action(decision)
     
-    print("ChrolloSD2 going back to sleep...")
+    print("ChrolloSD2 going back to sleep...", flush=True)
 
 
 if __name__ == "__main__":
