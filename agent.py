@@ -37,20 +37,26 @@ Response format (JSON only):
 If action is "none", leave other fields empty."""
 
 
-def moltbook_request(method, endpoint, data=None):
+def moltbook_request(method, endpoint, data=None, retries=3):
     headers = {"Authorization": f"Bearer {MOLTBOOK_API_KEY}"}
     url = f"{MOLTBOOK_BASE}{endpoint}"
     
-    try:
-        if method == "GET":
-            response = requests.get(url, headers=headers, params=data, timeout=TIMEOUT)
-        elif method == "POST":
-            headers["Content-Type"] = "application/json"
-            response = requests.post(url, headers=headers, json=data, timeout=TIMEOUT)
-        return response.json()
-    except Exception as e:
-        print(f"Request error: {e}")
-        return {"success": False, "error": str(e)}
+    for attempt in range(retries):
+        try:
+            print(f"Request attempt {attempt + 1}: {method} {endpoint}", flush=True)
+            if method == "GET":
+                response = requests.get(url, headers=headers, params=data, timeout=60)
+            elif method == "POST":
+                headers["Content-Type"] = "application/json"
+                response = requests.post(url, headers=headers, json=data, timeout=60)
+            return response.json()
+        except Exception as e:
+            print(f"Attempt {attempt + 1} failed: {e}", flush=True)
+            if attempt < retries - 1:
+                import time
+                time.sleep(5)
+    
+    return {"success": False, "error": "All retries failed"}
 
 
 def get_feed():
